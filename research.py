@@ -5,18 +5,27 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from model import ROOT, label_country, comparison, concentration, quality_summary
+from model import ROOT, label_country, comparison, concentration, quality_summary, COUNTRY_ZH
 
 
 def chart(fig):
-    fig.update_layout(template='plotly_white',font={'family':'Arial, sans-serif','size':13},
-                      margin={'l':15,'r':15,'t':48,'b':25},legend_title_text='',
-                      colorway=['#28749e','#329d92','#b38b35','#8065a6','#d47758','#5f86bb'])
-    st.plotly_chart(fig,width='stretch')
+    palette=['#337c93','#c69c5b','#5a9d8c','#8f84a6','#c47769','#7d98ae','#70896b','#a48376']
+    colors={COUNTRY_ZH[c]:('#c84b4b' if c=='5700' else palette[i%len(palette)]) for i,c in enumerate(sorted(COUNTRY_ZH))}
+    for trace in fig.data:
+        if trace.name in colors:
+            if trace.type=='scatter':trace.line.color=colors[trace.name]
+            elif trace.type=='bar':trace.marker.color=colors[trace.name]
+    fig.update_layout(template='plotly_white',font={'family':'Arial, Microsoft YaHei, sans-serif','size':13,'color':'#526b7b'},
+                      title_font={'size':16,'color':'#24485c'},paper_bgcolor='white',plot_bgcolor='white',
+                      margin={'l':22,'r':22,'t':62,'b':32},legend_title_text='',
+                      colorway=['#337c93','#c69c5b','#5a9d8c','#8f84a6','#c47769','#7d98ae'])
+    fig.update_xaxes(showgrid=False,zeroline=False,automargin=True)
+    fig.update_yaxes(gridcolor='#edf1f4',zerolinecolor='#dae3e9',automargin=True)
+    st.plotly_chart(fig,width='stretch',config={'displaylogo':False,'modeBarButtonsToRemove':['lasso2d','select2d']})
 
 
 def downloadable(df,key):
-    with st.expander('查看分析明细与下载'):
+    with st.expander('📋 查看明细 / 下载'):
         st.dataframe(df,hide_index=True,width='stretch')
         st.download_button('下载 CSV',df.to_csv(index=False).encode('utf-8-sig'),key+'.csv','text/csv',key=key)
 
@@ -34,7 +43,7 @@ def compare_control(raw,end,key):
 
 def overview(raw,start,end,names):
     st.divider()
-    st.subheader('周期观察：月度变化是否只是长期规模增长？')
+    st.subheader('🗓️ 月份与季节')
     f=raw.loc[start:end].sum(axis=1).rename('金额').reset_index()
     f['年份']=f.time.str[:4];f['月份']=f.time.str[5:].astype(int)
     left,right=st.columns(2)
@@ -54,7 +63,7 @@ def overview(raw,start,end,names):
 
 
 def source(raw,shares,names,start,end,topn):
-    st.divider();st.subheader('结构变化：金额与份额是否同向？')
+    st.divider();st.subheader('↗️ 谁在增长，谁的份额在变？')
     labels={c:label_country(c,names) for c in raw.columns}
     leaders=raw.loc[start:end].sum().nlargest(topn).index
     ranks=raw.rank(axis=1,ascending=False,method='min').loc[start:end,leaders].rename(columns=labels)
@@ -87,7 +96,7 @@ def source(raw,shares,names,start,end,topn):
 
 
 def china(raw,names,end):
-    st.divider();st.subheader('自华进口变化：美国市场规模与中国份额分别变化了多少？')
+    st.divider();st.subheader('🔎 拆开看自华进口的变化')
     result=compare_control(raw,end,'china_comparison')
     if result is None:return
     changes,old,new=result
@@ -110,7 +119,7 @@ def china(raw,names,end):
 
 
 def diversification(shares,raw,names,start,end,topn):
-    st.divider();st.subheader('多元化深度：来源数量多，是否也意味着份额分散？')
+    st.divider();st.subheader('🌿 来源多，份额也分散吗？')
     c=concentration(shares.loc[start:end])
     chart(px.line(c.reset_index(),x='time',y=['有效来源数（1/HHI）','熵有效来源数'],title='按份额分布折算的有效来源数'))
     st.caption('1/HHI更强调大来源地；熵有效来源数对较小来源地更敏感。两者均不直接等同供应链安全或风险。')
@@ -132,7 +141,7 @@ def diversification(shares,raw,names,start,end,topn):
 
 
 def geographic(df,geo,raw,names,start,end,topn,key):
-    st.divider();st.subheader('地区下钻：全国分布背后的来源结构')
+    st.divider();st.subheader('📍 选一个地区，看看细节')
     state_names=json.loads((ROOT/'state_names.json').read_text(encoding='utf-8'))
     if geo=='STATE':geo_names={g:g+' · '+state_names.get(g,g) for g in df[geo].unique()}
     else:
@@ -207,7 +216,7 @@ def geographic(df,geo,raw,names,start,end,topn,key):
 
 
 def quality(state,port):
-    st.subheader('可核查的数据质量')
+    st.subheader('✓ 数据核对')
     summary,differences=quality_summary(state,port)
     st.dataframe(summary,hide_index=True,width='stretch')
     st.metric('国家×月份金额不一致的组合数',str(differences))
