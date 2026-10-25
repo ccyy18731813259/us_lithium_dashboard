@@ -9,8 +9,8 @@ from model import ROOT, label_country, comparison, concentration, quality_summar
 
 
 def chart(fig):
-    palette=['#337c93','#c69c5b','#5a9d8c','#8f84a6','#c47769','#7d98ae','#70896b','#a48376']
-    colors={COUNTRY_ZH[c]:('#c84b4b' if c=='5700' else palette[i%len(palette)]) for i,c in enumerate(sorted(COUNTRY_ZH))}
+    palette=['#487fa8','#7ba5c4','#6f9c99','#a6b7c9','#a696b6','#c0ac83','#80989c','#a7aaa0']
+    colors={COUNTRY_ZH[c]:('#194f7c' if c=='5700' else palette[i%len(palette)]) for i,c in enumerate(sorted(COUNTRY_ZH))}
     for trace in fig.data:
         if trace.name in colors:
             if trace.type=='scatter':trace.line.color=colors[trace.name]
@@ -18,7 +18,14 @@ def chart(fig):
     fig.update_layout(template='plotly_white',font={'family':'Arial, Microsoft YaHei, sans-serif','size':13,'color':'#526b7b'},
                       title_font={'size':16,'color':'#24485c'},paper_bgcolor='white',plot_bgcolor='white',
                       margin={'l':22,'r':22,'t':62,'b':32},legend_title_text='',
-                      colorway=['#337c93','#c69c5b','#5a9d8c','#8f84a6','#c47769','#7d98ae'])
+                      colorway=['#3675a3','#8eb4d0','#567e9c','#b4cbdc','#7097b3','#d0dce6'])
+    for i,trace in enumerate(fig.data):
+        if trace.type=='bar' and len(fig.data)==1 and isinstance(trace.marker.color,(str,type(None))):
+            trace.marker.color='#3675a3'
+        elif trace.type=='waterfall':
+            trace.increasing.marker.color='#5e91b7'
+            trace.decreasing.marker.color='#a1afbc'
+            trace.totals.marker.color='#194f7c'
     fig.update_xaxes(showgrid=False,zeroline=False,automargin=True)
     fig.update_yaxes(gridcolor='#edf1f4',zerolinecolor='#dae3e9',automargin=True)
     legend_count=sum(1 for trace in fig.data if trace.showlegend is not False and trace.name)
@@ -87,9 +94,9 @@ def source(raw,shares,names,start,end,topn):
         f=changes.reset_index();f['来源地']=f.CTY_CODE.map(labels)
         left,right=st.columns(2)
         big=f.loc[f['金额变化'].abs().nlargest(topn).index].sort_values('金额变化')
-        with left:chart(px.bar(big,x='金额变化',y='来源地',orientation='h',color='金额变化',color_continuous_scale='RdBu',color_continuous_midpoint=0,title='金额增减最大的来源地'))
+        with left:chart(px.bar(big,x='金额变化',y='来源地',orientation='h',color='金额变化',color_continuous_scale=['#9faab5','#f6f8fb','#3675a3'],color_continuous_midpoint=0,title='金额增减最大的来源地'))
         big=f.loc[f['份额变化（百分点）'].abs().nlargest(topn).index].sort_values('份额变化（百分点）')
-        with right:chart(px.bar(big,x='份额变化（百分点）',y='来源地',orientation='h',color='份额变化（百分点）',color_continuous_scale='RdBu',color_continuous_midpoint=0,title='份额增减最大的来源地'))
+        with right:chart(px.bar(big,x='份额变化（百分点）',y='来源地',orientation='h',color='份额变化（百分点）',color_continuous_scale=['#9faab5','#f6f8fb','#3675a3'],color_continuous_midpoint=0,title='份额增减最大的来源地'))
         plot=f.nlargest(max(topn,12),'报告期金额').copy()
         plot['报告期金额（亿美元）']=plot['报告期金额']/1e8
         chart(px.scatter(plot,x='金额增速（%）',y='份额变化（百分点）',size='报告期金额（亿美元）',hover_name='来源地',size_max=55,title='增长与份额的四象限观察（气泡为报告期金额）'))

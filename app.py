@@ -40,7 +40,14 @@ def chart(fig):
     fig.update_layout(template='plotly_white', font={'family':'Arial, Microsoft YaHei, sans-serif', 'size':13,'color':'#526b7b'},
                       title_font={'size':16,'color':'#24485c'},paper_bgcolor='white',plot_bgcolor='white',
                       margin={'l':22, 'r':22, 't':62, 'b':32}, legend_title_text='',
-                      colorway=['#337c93','#c69c5b','#5a9d8c','#8f84a6','#c47769','#7d98ae'])
+                      colorway=['#3675a3','#8eb4d0','#567e9c','#b4cbdc','#7097b3','#d0dce6'])
+    for i,trace in enumerate(fig.data):
+        if trace.type=='bar' and len(fig.data)==1 and isinstance(trace.marker.color,(str,type(None))):
+            trace.marker.color='#3675a3'
+        elif trace.type=='waterfall':
+            trace.increasing.marker.color='#5e91b7'
+            trace.decreasing.marker.color='#a1afbc'
+            trace.totals.marker.color='#194f7c'
     fig.update_xaxes(showgrid=False,zeroline=False,automargin=True)
     fig.update_yaxes(gridcolor='#edf1f4',zerolinecolor='#dae3e9',automargin=True)
     legend_count=sum(1 for trace in fig.data if trace.showlegend is not False and trace.name)
@@ -117,8 +124,8 @@ def dashboard():
     selected_raw = raw.loc[start:end]
     sums = selected_raw.sum().sort_values(ascending=False)
     leaders = sums.head(topn).index.tolist()
-    palette=['#337c93','#c69c5b','#5a9d8c','#8f84a6','#c47769','#7d98ae','#70896b','#a48376']
-    colors = {names[c]: ('#c84b4b' if c=='5700' else palette[i % len(palette)]) for i,c in enumerate(raw.columns)}
+    palette=['#487fa8','#7ba5c4','#6f9c99','#a6b7c9','#a696b6','#c0ac83','#80989c','#a7aaa0']
+    colors = {names[c]: ('#194f7c' if c=='5700' else palette[i % len(palette)]) for i,c in enumerate(raw.columns)}
     with tabs[0]:
         st.subheader('进口规模与变化')
         chart(px.line(total.rename('进口额（亿美元）').div(1e8).reset_index(), x='time', y='进口额（亿美元）', title=f'美国进口金额 · {mode}'))
@@ -152,7 +159,7 @@ def dashboard():
     with tabs[2]:
         st.subheader('中国份额与进口金额')
         fig=go.Figure(go.Bar(x=window.index,y=china/1e8,name='自华进口额',marker_color='#58869f'))
-        fig.add_trace(go.Scatter(x=window.index,y=cs*100,name='中国份额',yaxis='y2',line={'color':'#c84b4b','width':3}))
+        fig.add_trace(go.Scatter(x=window.index,y=cs*100,name='中国份额',yaxis='y2',line={'color':'#194f7c','width':3}))
         fig.update_layout(title=f'自华进口金额与中国份额 · {mode}',yaxis_title='亿美元',yaxis2={'title':'份额（%）','overlaying':'y','side':'right','range':[0,100]},legend={'orientation':'h'})
         chart(fig)
         prior = str(pd.Period(end,'M')-12)
@@ -215,7 +222,7 @@ def dashboard():
 - 数据验证：附件初始化对照附件审计；后续API更新逐月核对全国总额及两表国家月度一致性。
 - 未出现的细分组合，仅在月份提取完整的前提下按零金额参与聚合。''')
         st.write('数据覆盖：'+meta['min_month']+'—'+meta['max_month'])
-        st.caption('看板版本：5.0')
+        st.caption('看板版本：5.1')
         research.quality(state,port)
         st.markdown('[州接口字段](https://api.census.gov/data/timeseries/intltrade/imports/statehs/variables.html) · [口岸接口字段](https://api.census.gov/data/timeseries/intltrade/imports/porths/variables.html)')
         st.caption('页面重跑或点击重新读取时检查最新版本。后台采集由GitHub Actions执行。')
