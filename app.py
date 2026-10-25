@@ -4,12 +4,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from model import ROOT, load_version, country_panel, geography_table
+import research
 
 st.set_page_config(page_title='美国锂离子蓄电池进口观察', page_icon='🔋', layout='wide')
 st.markdown('''<style>
 .block-container{padding-top:2rem;max-width:1480px}
 h1{font-weight:700;letter-spacing:-1px;color:#102a43}
 [data-testid="stMetric"]{background:#f0f5fa;border:1px solid #dce6ef;padding:16px;border-radius:8px}
+[data-testid="stMetricValue"]{font-size:1.8rem}
 [data-testid="stSidebar"]{background:#f5f7fa}
 </style>''', unsafe_allow_html=True)
 
@@ -20,7 +22,7 @@ def cached_load(version):
 
 
 @st.cache_data(show_spinner=False)
-def cached_panel(version, rolling):
+def cached_panel(version, rolling, display_revision='zh-v3'):
     state, _, _ = cached_load(version)
     return country_panel(state, rolling)
 
@@ -49,7 +51,7 @@ def dashboard():
         st.header('观察范围')
         all_months = sorted(state.time.unique())
         start, end = st.select_slider('时间区间', options=all_months, value=(all_months[max(0,len(all_months)-36)], all_months[-1]))
-        mode = st.radio('全国趋势口径', ['当月', '滚动12个月'])
+        mode = st.radio('全国趋势口径', ['当月', '滚动12个月'], key='trend_mode')
         topn = st.slider('重点来源地数量', 4, 12, 8)
         st.caption('期间排名、州及口岸分布按所选区间的原始月度金额合计；滚动口径仅用于全国趋势。')
         st.divider()
@@ -79,11 +81,11 @@ def dashboard():
     delta = f'{(total.iloc[-1]/prev_total-1)*100:+.1f}% 同比' if prev_total else None
     change = f'{(cs.iloc[-1]-shares.loc[prev,"5700"])*100:+.1f} 个百分点同比' if prev in shares.index and '5700' in shares else None
     cols = st.columns(4)
-    cols[0].metric(f'{latest} {mode}进口额', f'{total.iloc[-1]/1e8:,.2f} 亿美元', delta)
+    cols[0].metric(f'{latest} {mode}进口额（亿美元）', f'{total.iloc[-1]/1e8:,.2f}', delta)
     cols[1].metric('中国份额', f'{cs.iloc[-1]:.1%}', change)
     cols[2].metric('前五大来源地份额', f'{share.iloc[-1].nlargest(5).sum():.1%}')
     cols[3].metric('来源集中度 HHI', f'{share.iloc[-1].pow(2).sum():.3f}')
-    tabs = st.tabs(['总览','来源地结构','中国地位','目的地州','卸货口岸','数据与方法'])
+    tabs = st.tabs(['总览','来源地结构','中国地位','集中度与多元化','目的地州','卸货口岸','数据与方法'])
     selected_raw = raw.loc[start:end]
     sums = selected_raw.sum().sort_values(ascending=False)
     leaders = sums.head(topn).index.tolist()
@@ -105,6 +107,7 @@ def dashboard():
         if not ytd:
             yearly.loc[yearly['年份']==meta['max_month'][:4], '期间'] += f"（截至{int(meta['max_month'][5:])}月）"
         chart(px.bar(yearly, x='期间', y='进口额（美元）', title='全历史年度金额（独立于区间筛选）'))
+        research.overview(raw,start,end,names)
     with tabs[1]:
         st.subheader('美国从哪些来源地进口？')
         ranking = sums.rename('进口金额（美元）').reset_index()
@@ -115,16 +118,14 @@ def dashboard():
         area.columns = [names[c] for c in leaders]
         area['其他'] = share.drop(columns=leaders).sum(axis=1)
         chart(px.area(area.mul(100).reset_index().melt(id_vars='time', var_name='来源地', value_name='份额（%）'), x='time', y='份额（%）', color='来源地', color_discrete_map=colors, title=f'来源地份额变化 · {mode}'))
-        concentration = pd.DataFrame({'HHI':share.pow(2).sum(axis=1), 'CR5（%）':share.apply(lambda r:r.nlargest(5).sum()*100, axis=1)})
-        left, right = st.columns(2)
-        with left: chart(px.line(concentration.reset_index(),x='time',y='HHI', title='HHI：基于全部来源地计算'))
-        with right: chart(px.line(concentration.reset_index(),x='time',y='CR5（%）', title='前五大来源地份额'))
-        st.dataframe(ranking, hide_index=True, width='stretch')
-        download(ranking, 'country_structure')
+        research.downloadable(ranking,'country_structure')
+        research.source(raw,raw_shares,names,start,end,topn)
     with tabs[2]:
         st.subheader('中国在美国进口结构中的位置')
-        chart(px.line(cs.mul(100).rename('中国份额（%）').reset_index(), x='time',y='中国份额（%）', title=f'中国份额走势 · {mode}'))
-        chart(px.bar(china.div(1e8).rename('自华进口额（亿美元）').reset_index(), x='time',y='自华进口额（亿美元）', title=f'美国自中国进口金额 · {mode}'))
+        fig=go.Figure(go.Bar(x=window.index,y=china/1e8,name='自华进口额',marker_color='#58869f'))
+        fig.add_trace(go.Scatter(x=window.index,y=cs*100,name='中国份额',yaxis='y2',line={'color':'#c84b4b','width':3}))
+        fig.update_layout(title=f'自华进口金额与中国份额 · {mode}',yaxis_title='亿美元',yaxis2={'title':'份额（%）','overlaying':'y','side':'right','range':[0,100]},legend={'orientation':'h'})
+        chart(fig)
         prior = str(pd.Period(end,'M')-12)
         if prior in raw_shares.index:
             changes = ((raw_shares.loc[end]-raw_shares.loc[prior])*100).rename('份额同比变化（百分点）').reset_index()
@@ -133,6 +134,16 @@ def dashboard():
             chart(px.bar(changes,x='份额同比变化（百分点）',y='来源地',orientation='h',title=f'{end}较{prior}的当月份额变化'))
         st.caption('份额变化反映进口结构，不直接证明供应替代、竞争力变化或政策因果关系。')
         download(pd.DataFrame({'月份':window.index,'自华进口额（美元）':china.values,'中国份额（%）':cs.values*100}), 'china_position')
+        research.china(raw,names,end)
+
+    with tabs[3]:
+        st.subheader('进口来源的集中程度')
+        concentration = pd.DataFrame({'HHI':share.pow(2).sum(axis=1), 'CR5（%）':share.apply(lambda r:r.nlargest(5).sum()*100, axis=1)})
+        left, right = st.columns(2)
+        with left: chart(px.line(concentration.reset_index(),x='time',y='HHI', title=f'HHI · {mode}'))
+        with right: chart(px.line(concentration.reset_index(),x='time',y='CR5（%）', title=f'前五大来源地份额 · {mode}'))
+        st.caption('指标始终根据全部来源地计算，不将“其他”合并成一个来源地。')
+        research.diversification(raw_shares,raw,names,start,end,topn)
 
     def geo_view(df, geo, title, key):
         st.subheader(title)
@@ -141,8 +152,9 @@ def dashboard():
             mapping = df.dropna(subset=['PORT_NAME']).drop_duplicates('PORT',keep='last').set_index('PORT').PORT_NAME
             table['地区'] = table.PORT+' · '+table.PORT.map(mapping).fillna('名称待核')
         else:
-            table['地区'] = table.STATE
-        metric = st.selectbox('展示指标', ['进口金额（美元）','自华进口额（美元）','中国占当地进口比重（%）','占全国自华进口比重（%）'],key=key)
+            state_names=json.loads((ROOT/'state_names.json').read_text(encoding='utf-8'))
+            table['地区'] = table.STATE+' · '+table.STATE.map(state_names).fillna(table.STATE)
+        metric = st.selectbox('展示指标', ['进口金额（美元）','自华进口额（美元）','中国占当地进口比重（%）','占全国自华进口比重（%）','中国份额相对全国倍数'],key=key)
         minimum = st.number_input('排名最低当地进口额（美元）', min_value=0, value=0, step=1000000, key=key+'_min')
         eligible = table[table['进口金额（美元）']>=minimum]
         chart(px.bar(eligible.nlargest(15, metric).sort_values(metric), x=metric,y='地区',orientation='h',title=f'{start}—{end} · Top 15'))
@@ -154,16 +166,18 @@ def dashboard():
             chart(fig)
             st.caption('PR、VI、XX单列保留在明细和全国分母中。地图底图需要浏览器能够加载Plotly地理资源。')
         st.caption('中国占当地进口比重：当地自华进口额÷当地全部进口额；占全国自华进口比重：当地自华进口额÷全国自华进口额。')
-        st.dataframe(table, hide_index=True, width='stretch')
-        download(table,key+'_detail')
-    with tabs[3]: geo_view(state,'STATE','进口申报目的地州分布','state')
-    with tabs[4]:
+        st.caption('中国份额相对全国倍数＝当地中国份额÷全国中国份额。大于1表示当地中国份额高于全国平均，小于1则相反。它不是风险评分。')
+        research.downloadable(table,key+'_detail')
+        research.geographic(df,geo,raw,names,start,end,topn,key)
+    with tabs[4]: geo_view(state,'STATE','进口申报目的地州分布','state')
+    with tabs[5]:
         geo_view(port,'PORT','卸货口岸分布','port')
         st.caption('州表与口岸表没有联合运输路线字段，不能据此推导口岸到目的州的实际流向。')
-    with tabs[5]:
+    with tabs[6]:
         st.subheader('数据来源与统计方法')
         st.markdown('''- 产品：HS六位850760，锂离子蓄电池。本项目不区分车用与其他用途。
 - 国家：原产国，不等同直接发货国。中国使用Census代码5700。
+- 来源地名称统一使用中文；中国台湾、中国香港、中国澳门按原始统计分类分别展示，不将统计分类等同于主权划分。
 - 金额：GEN_VAL_MO，当月一般进口海关价值，美元。
 - 数量：不提供件数；海空毛重不代表全部运输方式总重量，不计算电池单价。
 - 地理：州为申报目的地，不能视为最终消费地；口岸为卸货口岸。
@@ -171,7 +185,8 @@ def dashboard():
 - HHI：全部来源地份额平方和；CR5：前五大来源地份额之和。
 - 数据验证：附件初始化对照附件审计；后续API更新逐月核对全国总额及两表国家月度一致性。
 - 未出现的细分组合，仅在月份提取完整的前提下按零金额参与聚合。''')
-        st.write('当前版本信息', meta)
+        st.write('数据覆盖：'+meta['min_month']+'—'+meta['max_month'])
+        research.quality(state,port)
         st.markdown('[州接口字段](https://api.census.gov/data/timeseries/intltrade/imports/statehs/variables.html) · [口岸接口字段](https://api.census.gov/data/timeseries/intltrade/imports/porths/variables.html)')
         st.caption('页面重跑或点击重新读取时检查最新版本。后台采集由GitHub Actions执行。')
 
